@@ -1,0 +1,13 @@
+sitemap Refrigerator label="Refrigerator Cam & Miele" {
+    Frame label="Refrigerator Cam" {
+        Image item=iKitchen_ESP32CAM_Image  label="Last Photo (Door closed)" refresh=5000        
+        Webview url="http://192.168.178.XX:81/stream" height=10
+    }
+    
+    Frame label="Miele Refrigerator Status" {
+        Text item=iKitchen_Miele_Refrigerator_Door
+        Text item=iKitchen_Miele_Refrigerator_Status
+        Text item=iKitchen_Miele_Refrigerator_CurrentRefrigeratorTemperature
+        Text item=iKitchen_Miele_Refrigerator_CurrentFreezerTemperature
+    }
+}
