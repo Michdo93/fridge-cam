@@ -1,188 +1,199 @@
-# fridge-cam
+# Fridge Cam (ESP32-CAM + openHAB Integration)
 
-An ESP32-CAM based smart fridge camera that takes a photo every time the
-fridge door closes, streams live video on demand, and integrates with
-openHAB via SSE events and the Claude AI API for fridge content analysis.
-
-## Hardware
-
-### Components
-
-| Component | Description |
-|-----------|-------------|
-| AZDelivery ESP32-CAM | AI-Thinker compatible camera module (OV2640) |
-| MakerMind ESP32-CAM-MB | USB programmer shield (CH340G, Micro-USB) |
-| Micro-USB cable (data) | For flashing and permanent power supply |
-| USB power adapter (5V/1A) | Permanent power supply via Micro-USB |
-
-### Assembly
-
-Stack the ESP32-CAM onto the ESP32-CAM-MB programmer board:
-- Align the pin headers
-- Press firmly until seated
-- Connect via Micro-USB to PC (for flashing) or USB power adapter (for operation)
-
-### Camera Module (OV2640)
-
-- Gold contacts face **down** (toward the PCB)
-- Insert the flex cable fully into the FPC connector
-- Press the brown locking lever down until it clicks
-- The lens should point away from the board
-
-### Powering the ESP32-CAM permanently
-
-Run a Micro-USB cable from the MB board to a USB power adapter (5V, min. 1A).
-Alternatively route a slim flat Micro-USB cable through the fridge door seal —
-the rubber gasket is flexible enough to accommodate a 1–2 mm flat cable without
-compromising the seal significantly.
+A smart refrigerator monitoring solution using an **ESP32-CAM** (AI-Thinker model) integrated into **openHAB**. When the refrigerator door closes, an HTTP request triggers the camera to snap a photo, save it into RAM, and update your smart home dashboard. Additionally, a continuous live MJPEG stream is available.
 
 ---
 
-## Software
+## Features
 
-### Arduino IDE Setup
-
-1. Install [Arduino IDE 2.x](https://www.arduino.cc/en/software) (64-bit)
-2. Open **File → Preferences → Additional boards manager URLs** and add:
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. Open **Tools → Board → Boards Manager**, search for `esp32` and install
-   the package by **Espressif Systems**
-
-### Board Settings
-
-| Setting | Value |
-|---------|-------|
-| Board | `ESP32 Wrover Module` |
-| Upload Speed | `115200` |
-| Flash Frequency | `80MHz` |
-| Flash Mode | `DIO` |
-| Partition Scheme | `Huge APP (3MB No OTA)` |
-| Port | your COM port (e.g. `COM3`) |
-
-### Flashing
-
-1. Open `esp32-cam/fridge_cam/fridge_cam.ino` in Arduino IDE
-2. Set your Wi-Fi credentials in the sketch
-3. Click **Upload (→)**
-4. Wait for `Connecting......` in the console
-5. If it does not connect automatically:
-   - Hold **IO0** button on the MB board
-   - Press **RST** button on the MB board briefly
-   - Release **IO0**
-6. Wait for `Done uploading`
-7. Press **RST** once → ESP32 starts normally
-8. Open **Tools → Serial Monitor** at **115200 baud** to read the IP address
+- **Automated Snapshot on Door Close:** Takes a photo via HTTP GET (`/photo`) the moment the refrigerator/freezer door closes.
+- **RAM Caching:** Keeps the latest photo in memory (`/last`) so openHAB or other applications can fetch it instantly without forcing a new sensor trigger.
+- **Live Video Stream:** Provides a real-time MJPEG live stream (`:81/stream`) running on a dedicated port to prevent blocking API requests.
+- **Robustness:** Includes brownout detector bypass and extensive sensor register tuning for optimal low-light image quality inside the fridge.
+- **Multi-Language openHAB Automation:** Includes rule implementations in **Rules DSL**, **Modern JavaScript (GraalVM)**, and **Python 3** (using the `openhab-python` binding).
 
 ---
 
-## ESP32-CAM Endpoints
+## Architecture Overview
 
-After flashing, the ESP32-CAM exposes the following HTTP endpoints:
-
-| Endpoint | Port | Description |
-|----------|------|-------------|
-| `GET /photo` | 80 | Take a new photo (with flash), store and return it |
-| `GET /last` | 80 | Return the last stored photo (no new capture) |
-| `GET /status` | 80 | JSON status (uptime, heap, last photo info) |
-| `GET /stream` | 81 | Live MJPEG stream (runs until client disconnects) |
-
-### Quick test in browser
 
 ```
-http://<ESP32_IP>/status
-http://<ESP32_IP>/photo
-http://<ESP32_IP>:81/stream
++-------------------------------------------------------+
+|                 ESP32-CAM (AI-Thinker)                |
+|  - Port 80: /photo, /last, /status                    |
+|  - Port 81: /stream (MJPEG Live Stream)               |
++-------------------------------------------------------+
+|
+v (HTTP GET /openHAB Rules)
++-------------------------------------------------------+
+|                       openHAB                         |
+|  - Things (HTTP Binding)                              |
+|  - Items (Image, String, Group)                       |
+|  - Sitemap (UI Dashboard)                             |
+|  - Automation (Rules DSL / JavaScript / Python 3)     |
++-------------------------------------------------------+
 ```
 
 ---
 
-## Python
+## 1. Hardware & Firmware Setup (ESP32-CAM)
 
-### Requirements
+1. Flash the ESP32-CAM with the optimized firmware (based on the provided `esp_cam_app.ino` / Code 3 setup).
+2. Ensure your Wi-Fi SSID and password are correctly set in the sketch.
+3. Note down the **IP address** assigned to your ESP32-CAM via the Serial Monitor (e.g., `192.168.178.50`).
 
-```bash
-pip install opencv-python anthropic python-openhab-rest-client
+---
+
+## 2. openHAB Configuration
+
+### Things (`/etc/openhab/things/esp32cam.things`)
+Add the ESP32-CAM via the HTTP binding:
+
+```text
+Thing http:url:esp32cam "ESP32-CAM Refrigerator" [
+    baseURL="[http://192.168.178.](http://192.168.178.)XX",
+    refresh=60
+] {
+    Channels:
+        Type image : lastPhoto "Last Photo" [ stateExtension="/last", stateMethod="GET", contentType="image/jpeg" ]
+        Type string : streamUrl "Livestream URL" [ stateValue="[http://192.168.178.](http://192.168.178.)XX:81/stream" ]
+}
 ```
 
-### stream_viewer.py
+*(Replace `192.168.178.XX` with your actual ESP32-CAM IP address).*
 
-Standalone stream viewer for testing — no openHAB required.
+---
 
-```bash
-python python/stream_viewer.py --ip 192.168.x.x
+### Items (`/etc/openhab/items/refrigerator.items`)
+
+Group and item definitions matching your Miele appliance setup and the ESP32 camera:
+
+```text
+Group    gKitchen_Refrigerator   "Refrigerator"   <fridge>  (gKitchen)
+
+// Miele Refrigerator Door Item (Trigger Source)
+Contact  iKitchen_Miele_Refrigerator_Door  "Freezer Door" <contact> (gKitchen_Refrigerator) ["Status", "OpenState"] { channel="miele:fridgefreezer:Miele_XGW3000:00124b000ae53e8b_2:door" }
+
+// ESP32-CAM Items
+Image    iKitchen_ESP32CAM_Image     "Inside the Refrigerator (Last Photo)"  <camera> (gKitchen_Refrigerator) { channel="http:url:esp32cam:lastPhoto" }
+String   iKitchen_ESP32CAM_Stream    "Refrigerator Live Stream URL"          <video>  (gKitchen_Refrigerator) { channel="http:url:esp32cam:streamUrl" }
 ```
 
-Press `q` to quit.
+---
 
-### openhab_integration.py
+### Sitemap (`/etc/openhab/sitemaps/refrigerator.sitemap`)
 
-Full integration:
-- Listens to Miele fridge door item via SSE (Server-Sent Events)
-- Triggers `/photo` on the ESP32-CAM when door closes (OPEN → CLOSED)
-- Saves photo locally
-- Sends photo to Claude AI for fridge content analysis
-- Writes AI description back to an openHAB String item
+Add the camera frame and status elements to your UI:
 
-```bash
-python python/openhab_integration.py
+```sitemap
+sitemap Refrigerator label="Refrigerator Cam & Miele" {
+    Frame label="Refrigerator Cam" {
+        Image item=iKitchen_ESP32CAM_Image label="Last Photo (Door closed)" refresh=5000        
+        Webview url="[http://192.168.178.](http://192.168.178.)XX:81/stream" height=10
+    }
+    
+    Frame label="Miele Refrigerator Status" {
+        Text item=iKitchen_Miele_Refrigerator_Door
+        Text item=iKitchen_Miele_Refrigerator_Status
+        Text item=iKitchen_Miele_Refrigerator_CurrentRefrigeratorTemperature
+        Text item=iKitchen_Miele_Refrigerator_CurrentFreezerTemperature
+    }
+}
 ```
 
-### Environment Variables
+Of course there are more regrigerator items.
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+---
 
-### Configuration (top of openhab_integration.py)
+## 3. Automation Rules (Choose One)
+
+Pick **only one** of the following rule formats depending on your preferred openHAB scripting engine.
+
+### Option A: Rules DSL (`/etc/openhab/rules/esp32cam.rules`)
+
+```xtend
+rule "ESP32-CAM take photo when refrigerator door closes (Rules DSL)"
+when
+    Item iKitchen_Miele_Refrigerator_Door changed from OPEN to CLOSED
+then
+    val String espIp = "192.168.178.XX"
+    try {
+        val String response = sendHttpGetRequest("http://" + espIp + "/photo", 5000)
+        logInfo("esp32cam", "Photo successfully triggered via Rules DSL. Response size: " + (if(response !== null) response.length else 0))
+        
+        // Refresh the image item
+        iKitchen_ESP32CAM_Image.sendCommand(REFRESH)
+    } catch(Exception e) {
+        logError("esp32cam", "Error triggering ESP32-CAM photo: " + e.message)
+    }
+end
+```
+
+### Option B: JavaScript (`/etc/openhab/automation/js/esp32cam.js`)
+
+```javascript
+rules.JSRule({
+  name: "ESP32-CAM take photo when refrigerator door closes (JS)",
+  description: "Triggers a photo via HTTP GET when the refrigerator door closes",
+  triggers: [
+    triggers.ItemStateChangeTrigger('iKitchen_Miele_Refrigerator_Door', 'OPEN', 'CLOSED')
+  ],
+  execute: (event) => {
+    var ESP32_IP = "192.168.178.XX";
+    try {
+      var URL = Java.type("java.net.URL");
+      var url = new URL("http://" + ESP32_IP + "/photo");
+      var connection = url.openConnection();
+      connection.setRequestMethod("GET");
+      connection.setConnectTimeout(5000);
+      connection.setReadTimeout(5000);
+      
+      var responseCode = connection.getResponseCode();
+      console.info("ESP32-CAM photo triggered successfully (JS). HTTP Status: " + responseCode);
+      
+      // Refresh the image item
+      events.sendCommand("iKitchen_ESP32CAM_Image", "REFRESH");
+    } catch (e) {
+      console.error("Error triggering ESP32-CAM photo (JS): " + e);
+    }
+  }
+});
+```
+
+### Option C: Python 3 (`/etc/openhab/automation/python/esp32cam.py`)
+
+*Requires the official openhab-python binding.*
 
 ```python
-OPENHAB_URL   = "http://192.168.x.x:8080"
-ESP32_URL     = "http://192.168.x.x"
-MIELE_ITEM    = "Miele_Fridge_Door"
-FOTO_ITEM     = "Fridge_LastPhoto"
-FOTO_DIR      = "/home/user/fridge-cam/photos"
-```
+from openhab.rules import rule, when
+import urllib.request
+import logging
 
----
+log = logging.getLogger("org.openhab.core.model.script.esp32cam")
 
-## Architecture
+ESP32_IP = "192.168.178.XX"
 
-```
-Miele fridge door closes
-        ↓
-openHAB item state change (OPEN → CLOSED)
-        ↓ SSE event
-Python script (openhab_integration.py)
-        ↓ HTTP GET /photo
-ESP32-CAM (takes photo with flash)
-        ↓ JPEG response
-Python script
-        ↓ base64 image
-Claude AI API (content analysis)
-        ↓ text description
-openHAB String item (Fridge_LastPhoto)
-```
-
----
-
-## File Structure
-
-```
-fridge-cam/
-├── README.md
-├── esp32-cam/
-│   └── fridge_cam/
-│       └── fridge_cam.ino      # ESP32-CAM Arduino sketch
-└── python/
-    ├── requirements.txt        # Python dependencies
-    ├── stream_viewer.py        # Standalone stream viewer (testing)
-    └── openhab_integration.py  # Full openHAB + AI integration
+@rule(
+    name="ESP32-CAM take photo when refrigerator door closes (Python 3)",
+    description="Takes a photo via HTTP request when the refrigerator door is closed."
+)
+@when("Item iKitchen_Miele_Refrigerator_Door changed from OPEN to CLOSED")
+def esp32_take_photo(event):
+    url = f"http://{ESP32_IP}/photo"
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status == 200:
+                log.info("ESP32-CAM photo successfully triggered via Python 3.")
+                events.sendCommand("iKitchen_ESP32CAM_Image", "REFRESH")
+            else:
+                log.warning(f"ESP32-CAM returned unexpected HTTP status: {response.status}")
+    except Exception as e:
+        log.error(f"Connection error to ESP32-CAM (Python 3): {e}")
 ```
 
 ---
 
 ## License
 
-MIT
+MIT License
