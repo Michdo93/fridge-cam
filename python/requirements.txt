@@ -1,4 +1,0 @@
-opencv-python
-anthropic
-python-openhab-rest-client
-requests
