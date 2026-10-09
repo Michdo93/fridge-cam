@@ -1,0 +1,12 @@
+// /etc/openhab/things/esp32cam.things
+
+Thing http:url:esp32cam "ESP32-CAM Refrigerator" [
+    baseURL="http://<IP_OF_THE_ESP32_CAM>",
+    refresh=60
+] {
+    Channels:
+        // Last photo (is updated or retrieved)
+        Type image : lastPhoto "Last Photo" [ stateExtension="/last", stateMethod="GET", contentType="image/jpeg" ]
+        // Livestream URL for Sitemaps/UIs
+        Type string : streamUrl "Livestream URL" [ stateValue="http://<IP_OF_THE_ESP32_CAM>:81/stream" ]
+}
