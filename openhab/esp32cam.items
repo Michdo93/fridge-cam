@@ -1,0 +1,4 @@
+// Additional items for the ESP32-CAM in the refrigerator group
+Group    gKitchen_Refrigerator   "Refrigerator"   <fridge>  (gKitchen)
+Image    iKitchen_ESP32CAM_Image     "Inside the Refrigerator (Last Photo)"  <camera> (gKitchen_Refrigerator) { channel="http:url:esp32cam:lastPhoto" }
+String   iKitchen_ESP32CAM_Stream    "Refrigerator Live Stream URL"          <video>  (gKitchen_Refrigerator) { channel="http:url:esp32cam:streamUrl" }
